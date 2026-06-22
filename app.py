@@ -52,6 +52,81 @@ def fix_landing_html():
 
 fix_landing_html()
 
+def fix_admin_html():
+    admin_path = os.path.join(os.path.dirname(__file__), 'templates', 'admin.html')
+    if not os.path.exists(admin_path):
+        return
+    with open(admin_path, 'r', encoding='utf-8') as f:
+        c = f.read()
+    if 'pendingSection' in c:
+        return
+    pending_html = (
+        '\n        <!-- Pending Users Section -->\n'
+        '        <div class="bg-[#12141c] rounded-xl border border-yellow-500/30 overflow-hidden mb-8" id="pendingSection">\n'
+        '            <div class="p-5 border-b border-yellow-500/20 flex justify-between items-center">\n'
+        '                <div>\n'
+        '                    <h2 class="text-xl font-bold text-yellow-400"><i class="fas fa-user-clock mr-2"></i>Pending Approvals</h2>\n'
+        '                    <p class="text-gray-500 text-xs mt-1">Users waiting for your approval</p>\n'
+        '                </div>\n'
+        '                <button onclick="loadPending()" class="bg-yellow-600/20 hover:bg-yellow-600/40 border border-yellow-500/30 text-yellow-400 px-3 py-1.5 rounded-lg text-xs transition">\n'
+        '                    <i class="fas fa-sync-alt mr-1"></i> Refresh\n'
+        '                </button>\n'
+        '            </div>\n'
+        '            <div class="p-5" id="pendingList">\n'
+        '                <div class="text-center text-gray-500 text-sm py-4">\n'
+        '                    <i class="fas fa-spinner fa-spin mr-2"></i> Loading...\n'
+        '                </div>\n'
+        '            </div>\n'
+        '        </div>\n'
+    )
+    pending_js = (
+        '\n    <script>\n'
+        '    async function loadPending() {\n'
+        '        const res = await fetch("/admin/pending");\n'
+        '        const data = await res.json();\n'
+        '        const list = document.getElementById("pendingList");\n'
+        '        if (!data.pending || data.pending.length === 0) {\n'
+        '            list.innerHTML = \'<div class="text-center text-gray-500 text-sm py-4"><i class="fas fa-check-circle text-green-400 mr-2"></i>No pending users</div>\';\n'
+        '            return;\n'
+        '        }\n'
+        '        list.innerHTML = data.pending.map(u => `\n'
+        '            <div class="flex items-center justify-between bg-[#0c0e14] rounded-lg p-4 mb-3 border border-yellow-500/20">\n'
+        '                <div>\n'
+        '                    <p class="font-bold text-white"><i class="fas fa-user mr-2 text-yellow-400"></i>${u.username}</p>\n'
+        '                    <p class="text-gray-500 text-xs mt-1"><i class="fas fa-clock mr-1"></i>Registered: ${u.registered}</p>\n'
+        '                </div>\n'
+        '                <div class="flex gap-2">\n'
+        '                    <button onclick="approveUser(\'${u.username}\')" class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition"><i class="fas fa-check mr-1"></i> Approve</button>\n'
+        '                    <button onclick="rejectUser(\'${u.username}\')" class="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition"><i class="fas fa-times mr-1"></i> Reject</button>\n'
+        '                </div>\n'
+        '            </div>\n'
+        '        `).join("");\n'
+        '    }\n'
+        '    async function approveUser(username) {\n'
+        '        if (!confirm("Approve " + username + "? A server will be created for them.")) return;\n'
+        '        const res = await fetch("/admin/approve/" + username, {method: "POST"});\n'
+        '        const data = await res.json();\n'
+        '        alert(data.message); loadPending();\n'
+        '        setTimeout(() => location.reload(), 1000);\n'
+        '    }\n'
+        '    async function rejectUser(username) {\n'
+        '        if (!confirm("Reject " + username + "?")) return;\n'
+        '        const res = await fetch("/admin/reject/" + username, {method: "POST"});\n'
+        '        const data = await res.json();\n'
+        '        alert(data.message); loadPending();\n'
+        '    }\n'
+        '    loadPending();\n'
+        '    </script>\n'
+    )
+    c = c.replace('        <!-- Users & Servers List -->', pending_html + '        <!-- Users & Servers List -->')
+    c = c.replace('</body>', pending_js + '</body>')
+    with open(admin_path, 'w', encoding='utf-8') as f:
+        f.write(c)
+    print("✅ admin.html auto-fixed")
+
+fix_admin_html()
+
+
 app.secret_key = 'uzair-super-secret-key-2026'
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
