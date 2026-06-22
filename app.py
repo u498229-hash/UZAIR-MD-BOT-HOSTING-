@@ -17,7 +17,6 @@ app = Flask(__name__)
 app.secret_key = 'uzair-super-secret-key-2026'
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
-ADMIN_API_KEY = 'change-this-to-your-own-secret-key'  # required to create accounts via /api/create
 
 USERS_FILE = 'users.json'
 BOTS_DIR = 'bots'
@@ -496,16 +495,67 @@ def index():
 def landing():
     return render_template('landing.html')
 
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+        confirm = request.form.get('confirm', '').strip()
+        users = load_users()
+        if len(username) < 3:
+            return render_template('register.html', error="Username must be at least 3 characters!")
+        if len(password) < 4:
+            return render_template('register.html', error="Password must be at least 4 characters!")
+        if password != confirm:
+            return render_template('register.html', error="Passwords do not match!")
+        if username in users:
+            return render_template('register.html', error="Username already taken!")
+        if username == 'admin':
+            return render_template('register.html', error="This username is not allowed!")
+        users[username] = {
+            'password': password,
+            'role': 'user',
+            'status': 'pending',
+            'servers': [],
+            'registered': str(datetime.now())
+        }
+        save_users(users)
+        return render_template('register.html', success="✅ Registration successful! Please wait for admin approval.")
+    return render_template('register.html', error=None)
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         username = request.form.get('username', '')
         password = request.form.get('password', '')
         users = load_users()
+        # Admin login
         if username == 'admin' and password == users.get('admin', {}).get('password'):
             session['user'] = 'admin'
             session['role'] = 'admin'
             return redirect(url_for('admin_dashboard'))
+        # Registered user login
+        if username in users and username != 'admin':
+            udata = users[username]
+            if udata.get('password') == password:
+                status = udata.get('status', 'pending')
+                if status == 'pending':
+                    return render_template('login.html', error="⏳ Account pending admin approval. Please wait!")
+                if status == 'rejected':
+                    return render_template('login.html', error="❌ Your account has been rejected by admin.")
+                if status == 'approved':
+                    servers = udata.get('servers', [])
+                    if servers:
+                        server_id = servers[0]['server_id']
+                        session['user'] = username
+                        session['role'] = 'user'
+                        session['current_server_id'] = server_id
+                        return redirect(url_for('server_home', server_id=server_id))
+                    else:
+                        return render_template('login.html', error="⚠️ No server assigned yet. Contact admin.")
+            else:
+                return render_template('login.html', error="Invalid credentials!")
         return render_template('login.html', error="Invalid credentials!")
     return render_template('login.html', error=None)
 
@@ -561,6 +611,68 @@ def logout():
 # ============================================
 # অ্যাডমিন
 # ============================================
+@app.route('/admin/approve/<username>', methods=['POST'])
+def admin_approve_user(username):
+    if 'user' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    users = load_users()
+    if username not in users or username == 'admin':
+        return jsonify({'status': 'error', 'message': 'User not found'}), 404
+    
+    udata = users[username]
+    # Create server for approved user
+    server_id = str(uuid.uuid4())[:8]
+    expiry_date = datetime.now() + timedelta(days=3)
+    create_default_files(get_server_dir(server_id))
+    host = request.host
+    is_local = host.startswith('localhost') or host.startswith('127.0.0.1')
+    scheme = 'http' if is_local else 'https'
+    full_url = f"{scheme}://{host}/{server_id}/login"
+    new_server = {
+        'server_id': server_id,
+        'login_url': f"/{server_id}/login",
+        'dashboard_url': f"/{server_id}/home",
+        'full_link': full_url,
+        'type': 'python',
+        'ram': '1GB', 'disk': '1GB',
+        'status': 'stopped', 'pid': None,
+        'created': str(datetime.now()),
+        'expiry': str(expiry_date),
+        'main_file': 'main.py',
+        'requirements_file': 'requirements.txt',
+        'cpu_limit': 30,
+        'rate_limit_exceeded': False,
+        'stopped_by_user': False
+    }
+    users[username]['status'] = 'approved'
+    users[username]['servers'] = [new_server]
+    save_users(users)
+    return jsonify({'status': 'success', 'message': f'{username} approved! Server: {server_id}'})
+
+@app.route('/admin/reject/<username>', methods=['POST'])
+def admin_reject_user(username):
+    if 'user' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    users = load_users()
+    if username not in users or username == 'admin':
+        return jsonify({'status': 'error', 'message': 'User not found'}), 404
+    users[username]['status'] = 'rejected'
+    save_users(users)
+    return jsonify({'status': 'success', 'message': f'{username} rejected!'})
+
+@app.route('/admin/pending')
+def admin_pending_users():
+    if 'user' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    users = load_users()
+    pending = []
+    for uname, udata in users.items():
+        if uname == 'admin': continue
+        if udata.get('status') == 'pending':
+            pending.append({'username': uname, 'registered': udata.get('registered', 'N/A')})
+    return jsonify({'pending': pending})
+
+
 
 @app.route('/admin')
 def admin_dashboard():
