@@ -280,8 +280,27 @@ while True:
 # বট রান
 # ============================================
 
+def detect_bot_type(server_dir, main_file):
+    """Detect if bot is Node.js or Python based on files present"""
+    # Check for package.json (Node.js)
+    if os.path.exists(os.path.join(server_dir, 'package.json')):
+        return 'nodejs'
+    # Check main file extension
+    if main_file.endswith('.js'):
+        return 'nodejs'
+    return 'python'
+
 def run_bot(server_id, main_file='main.py', requirements_file='requirements.txt'):
     server_dir = get_server_dir(server_id)
+    bot_type = detect_bot_type(server_dir, main_file)
+    
+    # For Node.js, use index.js if main_file not set properly
+    if bot_type == 'nodejs' and main_file == 'main.py':
+        for js_entry in ['index.js', 'main.js', 'bot.js', 'app.js']:
+            if os.path.exists(os.path.join(server_dir, js_entry)):
+                main_file = js_entry
+                break
+    
     main_path = os.path.join(server_dir, main_file)
     log_file = os.path.join(server_dir, 'output.log')
     python_exe = sys.executable
@@ -308,49 +327,76 @@ def run_bot(server_id, main_file='main.py', requirements_file='requirements.txt'
     log(f"[{ts()}] Rate limit: {cpu_limit}%")
     log("")
     
-    if requirements_file and requirements_file.strip():
-        req_path = os.path.join(server_dir, requirements_file.strip())
-        log(f"[{ts()}] Run: pip install -r {requirements_file}")
-        log("")
-        
-        if os.path.exists(req_path):
-            with open(req_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-            
-            lines = [l.strip() for l in content.split('\n') if l.strip() and not l.strip().startswith('#')]
-            
-            if lines:
-                try:
-                    proc = subprocess.Popen(
-                        [python_exe, '-m', 'pip', 'install', '-r', os.path.abspath(req_path), '--disable-pip-version-check'],
-                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                        text=True, bufsize=1, universal_newlines=True,
-                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-                    )
-                    
-                    for line in iter(proc.stdout.readline, ''):
-                        if line.strip():
-                            log(f"[{ts()}] {line.rstrip()}")
-                    
-                    proc.wait()
-                    log("")
-                    
-                    if proc.returncode != 0:
-                        log(f"[{ts()}] Some packages failed to install")
-                    else:
-                        log(f"[{ts()}] Requirements installation complete!")
-                except Exception as e:
-                    log(f"[{ts()}] pip error: {str(e)}")
-            else:
-                log(f"[{ts()}] {requirements_file} is empty, skipping...")
+    # Install dependencies based on bot type
+    if bot_type == 'nodejs':
+        pkg_json = os.path.join(server_dir, 'package.json')
+        if os.path.exists(pkg_json):
+            log(f"[{ts()}] Run: npm install")
+            log("")
+            try:
+                node_env = os.environ.copy()
+                proc = subprocess.Popen(
+                    ['npm', 'install'],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1, universal_newlines=True,
+                    cwd=server_dir, env=node_env,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                )
+                for line in iter(proc.stdout.readline, ''):
+                    if line.strip():
+                        log(f"[{ts()}] {line.rstrip()}")
+                proc.wait()
+                log("")
+                if proc.returncode != 0:
+                    log(f"[{ts()}] npm install had some warnings")
+                else:
+                    log(f"[{ts()}] npm install complete!")
+            except Exception as e:
+                log(f"[{ts()}] npm error: {str(e)}")
         else:
-            log(f"[{ts()}] {requirements_file} not found, skipping...")
+            log(f"[{ts()}] No package.json found, skipping npm install...")
     else:
-        log(f"[{ts()}] No requirements file set, skipping...")
+        if requirements_file and requirements_file.strip():
+            req_path = os.path.join(server_dir, requirements_file.strip())
+            log(f"[{ts()}] Run: pip install -r {requirements_file}")
+            log("")
+            if os.path.exists(req_path):
+                with open(req_path, 'r', encoding='utf-8') as f:
+                    req_content = f.read().strip()
+                lines = [l.strip() for l in req_content.split('\n') if l.strip() and not l.strip().startswith('#')]
+                if lines:
+                    try:
+                        proc = subprocess.Popen(
+                            [python_exe, '-m', 'pip', 'install', '-r', os.path.abspath(req_path), '--disable-pip-version-check'],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1, universal_newlines=True,
+                            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                        )
+                        for line in iter(proc.stdout.readline, ''):
+                            if line.strip():
+                                log(f"[{ts()}] {line.rstrip()}")
+                        proc.wait()
+                        log("")
+                        if proc.returncode != 0:
+                            log(f"[{ts()}] Some packages failed to install")
+                        else:
+                            log(f"[{ts()}] Requirements installation complete!")
+                    except Exception as e:
+                        log(f"[{ts()}] pip error: {str(e)}")
+                else:
+                    log(f"[{ts()}] {requirements_file} is empty, skipping...")
+            else:
+                log(f"[{ts()}] {requirements_file} not found, skipping...")
+        else:
+            log(f"[{ts()}] No requirements file set, skipping...")
     
     log("")
-    log(f"[{ts()}] Run: python {main_file}")
-    log(f"[{ts()}] Python {sys.version.split()[0]}")
+    if bot_type == 'nodejs':
+        log(f"[{ts()}] Run: node {main_file}")
+        log(f"[{ts()}] Runtime: Node.js")
+    else:
+        log(f"[{ts()}] Run: python {main_file}")
+        log(f"[{ts()}] Python {sys.version.split()[0]}")
     log("")
     
     try:
@@ -359,8 +405,13 @@ def run_bot(server_id, main_file='main.py', requirements_file='requirements.txt'
         env['PYTHONIOENCODING'] = 'utf-8'
         env['PYTHONUNBUFFERED'] = '1'
         
+        if bot_type == 'nodejs':
+            cmd = ['node', main_path_abs]
+        else:
+            cmd = [python_exe, main_path_abs]
+        
         proc = subprocess.Popen(
-            [python_exe, main_path_abs],
+            cmd,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             cwd=server_dir,
             text=True, encoding='utf-8', errors='replace',
