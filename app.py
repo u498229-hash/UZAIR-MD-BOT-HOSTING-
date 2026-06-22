@@ -290,6 +290,64 @@ def detect_bot_type(server_dir, main_file):
         return 'nodejs'
     return 'python'
 
+
+def ensure_nodejs(log):
+    """Install Node.js if not available"""
+    import shutil
+    if shutil.which('node'):
+        return True
+    log("[setup] Node.js not found, installing via nodeenv...")
+    try:
+        # Install nodeenv via pip
+        proc = subprocess.Popen(
+            [sys.executable, '-m', 'pip', 'install', 'nodeenv', '--quiet'],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, universal_newlines=True
+        )
+        proc.wait()
+        # Use nodeenv to install node
+        node_dir = os.path.join(os.path.expanduser('~'), '.node_env')
+        proc2 = subprocess.Popen(
+            [sys.executable, '-m', 'nodeenv', node_dir, '--prebuilt', '--quiet'],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, universal_newlines=True
+        )
+        for line in iter(proc2.stdout.readline, ''):
+            if line.strip():
+                log(f"[setup] {line.rstrip()}")
+        proc2.wait()
+        # Add to PATH
+        bin_path = os.path.join(node_dir, 'bin')
+        os.environ['PATH'] = bin_path + os.pathsep + os.environ.get('PATH', '')
+        import shutil as sh
+        if sh.which('node'):
+            log("[setup] Node.js installed successfully!")
+            return True
+        else:
+            log("[setup] Node.js install failed!")
+            return False
+    except Exception as e:
+        log(f"[setup] Node.js install error: {e}")
+        return False
+
+def get_node_cmd(cmd_name):
+    """Get full path of node/npm command"""
+    import shutil
+    found = shutil.which(cmd_name)
+    if found:
+        return found
+    # Try common paths
+    common = [
+        os.path.join(os.path.expanduser('~'), '.node_env', 'bin', cmd_name),
+        f'/usr/local/bin/{cmd_name}',
+        f'/usr/bin/{cmd_name}',
+    ]
+    for p in common:
+        if os.path.exists(p):
+            os.environ['PATH'] = os.path.dirname(p) + os.pathsep + os.environ.get('PATH', '')
+            return p
+    return cmd_name
+
 def run_bot(server_id, main_file='main.py', requirements_file='requirements.txt'):
     server_dir = get_server_dir(server_id)
     bot_type = detect_bot_type(server_dir, main_file)
@@ -329,6 +387,10 @@ def run_bot(server_id, main_file='main.py', requirements_file='requirements.txt'
     
     # Install dependencies based on bot type
     if bot_type == 'nodejs':
+        log(f"[{ts()}] Checking Node.js...")
+        ensure_nodejs(log)
+        npm_cmd = get_node_cmd('npm')
+        node_cmd = get_node_cmd('node')
         pkg_json = os.path.join(server_dir, 'package.json')
         if os.path.exists(pkg_json):
             log(f"[{ts()}] Run: npm install")
@@ -336,7 +398,7 @@ def run_bot(server_id, main_file='main.py', requirements_file='requirements.txt'
             try:
                 node_env = os.environ.copy()
                 proc = subprocess.Popen(
-                    ['npm', 'install'],
+                    [npm_cmd, 'install'],
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, bufsize=1, universal_newlines=True,
                     cwd=server_dir, env=node_env,
@@ -406,7 +468,8 @@ def run_bot(server_id, main_file='main.py', requirements_file='requirements.txt'
         env['PYTHONUNBUFFERED'] = '1'
         
         if bot_type == 'nodejs':
-            cmd = ['node', main_path_abs]
+            node_cmd = get_node_cmd('node')
+            cmd = [node_cmd, main_path_abs]
         else:
             cmd = [python_exe, main_path_abs]
         
