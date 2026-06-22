@@ -14,6 +14,44 @@ import zipfile
 import psutil
 
 app = Flask(__name__)
+
+# ============================================
+# Auto-fix landing.html on startup
+# ============================================
+def fix_landing_html():
+    import os
+    landing_path = os.path.join(os.path.dirname(__file__), 'templates', 'landing.html')
+    if not os.path.exists(landing_path):
+        return
+    with open(landing_path, 'r', encoding='utf-8') as f:
+        c = f.read()
+    changed = False
+    fixes = [
+        ('Join Telegram Bot', 'Contact Admin'),
+        ('Start our Telegram bot and verify your account.', 'Request a free panel from the admin to get your login credentials.'),
+        ('Share Referral Link', 'Login to Panel'),
+        ('Get 5 people to join using your referral link.', 'Use your credentials to login and access your personal hosting dashboard.'),
+        ('Claim Free Panel!', 'Upload & Run!'),
+        ('Create your panel and start hosting instantly!', 'Upload your Python bot files and click Start. Your bot runs 24/7 instantly!'),
+        ('href="https://t.me/zip_extrctor_bot" target="_blank"', 'href="/login"'),
+        ('Via Referrals', 'Contact Admin'),
+        ('5 Referrals Required', 'Contact Admin to Get'),
+        ('Referral Rewards', 'Instant Setup'),
+        ('Share your referral link with 5 friends. When they join our Telegram bot using your link, you get a free panel!', 'Simply contact the admin and request a free panel. You will receive your login credentials instantly!'),
+        ('The easiest way to host your Telegram/Discord bots. Get a free panel with 5 referrals or use a redeem code. 24/7 uptime, instant setup!', 'The easiest way to host your Python bots. Get a free panel by contacting admin. 24/7 uptime, instant setup!'),
+        ('Get a FREE panel for every 5 referrals. Unlimited rewards!', 'Get a FREE panel by contacting the admin. Start hosting instantly!'),
+    ]
+    for old, new in fixes:
+        if old in c:
+            c = c.replace(old, new)
+            changed = True
+    if changed:
+        with open(landing_path, 'w', encoding='utf-8') as f:
+            f.write(c)
+        print("✅ landing.html auto-fixed on startup")
+
+fix_landing_html()
+
 app.secret_key = 'uzair-super-secret-key-2026'
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
